@@ -61,11 +61,12 @@ type Options struct {
 type Client struct {
 	options Options
 
-	localMu        sync.Mutex
-	localAffiliate []byte
-	localEndpoints [][]byte
-	otherEndpoints []endpointData
-	localUpdatesCh chan struct{}
+	localMu         sync.Mutex
+	deleteAffiliate bool
+	localAffiliate  []byte
+	localEndpoints  [][]byte
+	otherEndpoints  []endpointData
+	localUpdatesCh  chan struct{}
 
 	discoveredMu         sync.Mutex
 	discoveredAffiliates map[string]*Affiliate
@@ -156,6 +157,8 @@ func (client *Client) SetLocalData(localAffiliate *Affiliate, otherEndpoints []E
 	client.localMu.Lock()
 	defer client.localMu.Unlock()
 
+	client.deleteAffiliate = false
+
 	client.localAffiliate = append([]byte(nil), nonce...)
 	client.localAffiliate = client.gcm.Seal(client.localAffiliate, nonce, localAffiliateData, nil)
 
@@ -184,6 +187,24 @@ func (client *Client) SetLocalData(localAffiliate *Affiliate, otherEndpoints []E
 	}
 
 	return nil
+}
+
+// DeleteLocalAffiliate marks local affiliate for deletion.
+//
+// Actual deletion happens on the next update in the Run loop.
+func (client *Client) DeleteLocalAffiliate() {
+	client.localMu.Lock()
+	defer client.localMu.Unlock()
+
+	client.deleteAffiliate = true
+	client.localAffiliate = nil
+	client.localEndpoints = nil
+	client.otherEndpoints = nil
+
+	select {
+	case client.localUpdatesCh <- struct{}{}:
+	default:
+	}
 }
 
 // GetAffiliates returns discovered affiliates.
@@ -459,10 +480,23 @@ func (client *Client) refreshData(ctx context.Context, discoveryClient serverpb.
 	defer cancel()
 
 	client.localMu.Lock()
+	deleteAffiliate := client.deleteAffiliate
 	localAffiliate := client.localAffiliate
 	localEndpoints := client.localEndpoints
 	otherEndpoints := client.otherEndpoints
 	client.localMu.Unlock()
+
+	if deleteAffiliate {
+		_, err := discoveryClient.AffiliateDelete(ctx, &serverpb.AffiliateDeleteRequest{
+			ClusterId:   client.options.ClusterID,
+			AffiliateId: client.options.AffiliateID,
+		})
+		if err != nil {
+			return fmt.Errorf("error deleting local affiliate: %w", err)
+		}
+
+		return nil
+	}
 
 	if localAffiliate == nil {
 		// no local data yet
