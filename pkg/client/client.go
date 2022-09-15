@@ -17,12 +17,13 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
-	clientpb "github.com/talos-systems/discovery-api/api/v1alpha1/client/pb"
-	serverpb "github.com/talos-systems/discovery-api/api/v1alpha1/server/pb"
+	clientpb "github.com/siderolabs/discovery-api/api/v1alpha1/client/pb"
+	serverpb "github.com/siderolabs/discovery-api/api/v1alpha1/server/pb"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
@@ -265,7 +266,7 @@ func (client *Client) Run(ctx context.Context, logger *zap.Logger, notifyCh chan
 			opts := []grpc.DialOption{}
 
 			if client.options.Insecure {
-				opts = append(opts, grpc.WithInsecure())
+				opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 			} else {
 				opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{})))
 			}
@@ -321,6 +322,8 @@ func (client *Client) Run(ctx context.Context, logger *zap.Logger, notifyCh chan
 			if err := client.refreshData(ctx, discoveryClient); err != nil {
 				// failed to refresh, abort watch
 				watchCtxCancel()
+
+				watchCh = nil
 
 				logger.Error("failed refreshing discovery service data", zap.Error(err))
 			} else {
@@ -554,10 +557,15 @@ func watch(ctx context.Context, client serverpb.ClusterClient, clusterID string)
 
 		for ctx.Err() == nil {
 			resp, err := cli.Recv()
-			ch <- watchReply{
+
+			select {
+			case ch <- watchReply{
 				snapshot: isSnapshot,
 				resp:     resp,
 				err:      err,
+			}:
+			case <-ctx.Done():
+				return
 			}
 
 			isSnapshot = false
