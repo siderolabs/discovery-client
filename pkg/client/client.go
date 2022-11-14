@@ -71,6 +71,7 @@ type Client struct {
 
 	discoveredMu         sync.Mutex
 	discoveredAffiliates map[string]*Affiliate
+	discoveredPublicIP   []byte
 
 	gcm     cipher.AEAD
 	backoff *backoff.ExponentialBackOff
@@ -220,6 +221,14 @@ func (client *Client) GetAffiliates() []*Affiliate {
 	}
 
 	return result
+}
+
+// GetPublicIP returns client's discovered public IP.
+func (client *Client) GetPublicIP() []byte {
+	client.discoveredMu.Lock()
+	defer client.discoveredMu.Unlock()
+
+	return append([]byte(nil), client.discoveredPublicIP...)
 }
 
 // Run the client loop.
@@ -469,6 +478,10 @@ func (client *Client) sendHello(ctx context.Context, discoveryClient serverpb.Cl
 	if err != nil {
 		return "", err
 	}
+
+	client.discoveredMu.Lock()
+	client.discoveredPublicIP = resp.ClientIp
+	client.discoveredMu.Unlock()
 
 	if resp.Redirect != nil {
 		return resp.Redirect.Endpoint, nil
