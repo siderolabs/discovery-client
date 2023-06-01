@@ -19,6 +19,7 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	clientpb "github.com/siderolabs/discovery-api/api/v1alpha1/client/pb"
 	serverpb "github.com/siderolabs/discovery-api/api/v1alpha1/server/pb"
+	"github.com/siderolabs/gen/channel"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -272,7 +273,7 @@ func (client *Client) Run(ctx context.Context, logger *zap.Logger, notifyCh chan
 		if discoveryConn == nil {
 			var err error
 
-			opts := []grpc.DialOption{}
+			var opts []grpc.DialOption
 
 			if client.options.Insecure {
 				opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -294,10 +295,8 @@ func (client *Client) Run(ctx context.Context, logger *zap.Logger, notifyCh chan
 
 			logger.Debug("waiting before attempting next discovery refresh", zap.Duration("interval", waitInterval))
 
-			select {
-			case <-ctx.Done():
-				return nil
-			case <-time.After(waitInterval):
+			if _, ok := channel.RecvWithContext(ctx, time.After(waitInterval)); !ok && ctx.Err() != nil {
+				return nil //nolint:nilerr
 			}
 
 			// send Hello before establishing watch, as real reconnects are handled
@@ -555,13 +554,9 @@ func watch(ctx context.Context, client serverpb.ClusterClient, clusterID string)
 	ch := make(chan watchReply, 1)
 
 	go func() {
-		cli, err := client.Watch(ctx, &serverpb.WatchRequest{
-			ClusterId: clusterID,
-		})
+		cli, err := client.Watch(ctx, &serverpb.WatchRequest{ClusterId: clusterID})
 		if err != nil {
-			ch <- watchReply{
-				err: err,
-			}
+			ch <- watchReply{err: err}
 
 			return
 		}
@@ -571,13 +566,7 @@ func watch(ctx context.Context, client serverpb.ClusterClient, clusterID string)
 		for ctx.Err() == nil {
 			resp, err := cli.Recv()
 
-			select {
-			case ch <- watchReply{
-				snapshot: isSnapshot,
-				resp:     resp,
-				err:      err,
-			}:
-			case <-ctx.Done():
+			if !channel.SendWithContext(ctx, ch, watchReply{snapshot: isSnapshot, resp: resp, err: err}) {
 				return
 			}
 
