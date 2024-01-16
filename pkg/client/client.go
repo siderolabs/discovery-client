@@ -25,6 +25,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
@@ -273,7 +274,11 @@ func (client *Client) Run(ctx context.Context, logger *zap.Logger, notifyCh chan
 		if discoveryConn == nil {
 			var err error
 
-			var opts []grpc.DialOption
+			opts := []grpc.DialOption{
+				grpc.WithKeepaliveParams(keepalive.ClientParameters{
+					Time: min(10*time.Second, client.options.TTL/10),
+				}),
+			}
 
 			if client.options.Insecure {
 				opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
