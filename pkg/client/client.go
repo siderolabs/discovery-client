@@ -276,7 +276,7 @@ func (client *Client) Run(ctx context.Context, logger *zap.Logger, notifyCh chan
 
 			opts := []grpc.DialOption{
 				grpc.WithKeepaliveParams(keepalive.ClientParameters{
-					Time: min(10*time.Second, client.options.TTL/10),
+					Time: max(10*time.Second, client.options.TTL/10),
 				}),
 			}
 
@@ -300,8 +300,10 @@ func (client *Client) Run(ctx context.Context, logger *zap.Logger, notifyCh chan
 
 			logger.Debug("waiting before attempting next discovery refresh", zap.Duration("interval", waitInterval))
 
-			if _, ok := channel.RecvWithContext(ctx, time.After(waitInterval)); !ok && ctx.Err() != nil {
-				return nil //nolint:nilerr
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(waitInterval):
 			}
 
 			// send Hello before establishing watch, as real reconnects are handled
