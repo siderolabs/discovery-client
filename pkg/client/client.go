@@ -274,17 +274,7 @@ func (client *Client) Run(ctx context.Context, logger *zap.Logger, notifyCh chan
 		if discoveryConn == nil {
 			var err error
 
-			opts := []grpc.DialOption{
-				grpc.WithKeepaliveParams(keepalive.ClientParameters{
-					Time: max(10*time.Second, client.options.TTL/10),
-				}),
-			}
-
-			if client.options.Insecure {
-				opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
-			} else {
-				opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{})))
-			}
+			opts := GRPCDialOptions(client.options)
 
 			discoveryConn, err = grpc.DialContext(ctx, client.options.Endpoint, opts...)
 			if err != nil {
@@ -586,4 +576,21 @@ func watch(ctx context.Context, client serverpb.ClusterClient, clusterID string)
 	}()
 
 	return ch
+}
+
+// GRPCDialOptions returns gRPC dial options for the given client options.
+func GRPCDialOptions(options Options) []grpc.DialOption {
+	opts := []grpc.DialOption{
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time: max(10*time.Second, options.TTL/10),
+		}),
+	}
+
+	if options.Insecure {
+		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	} else {
+		opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{})))
+	}
+
+	return opts
 }
