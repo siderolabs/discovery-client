@@ -44,6 +44,8 @@ type Options struct {
 	AffiliateID string
 	// ClientVersion for the Hello request.
 	ClientVersion string
+	// Extra dial options for the gRPC client.
+	DialOptions []grpc.DialOption
 	// TTL for the submitted data.
 	TTL time.Duration
 	// Insecure gRPC connection (only for testing)
@@ -278,7 +280,7 @@ func (client *Client) Run(ctx context.Context, logger *zap.Logger, notifyCh chan
 
 			opts := GRPCDialOptions(client.options)
 
-			discoveryConn, err = grpc.DialContext(ctx, client.options.Endpoint, opts...)
+			discoveryConn, err = grpc.NewClient(client.options.Endpoint, opts...)
 			if err != nil {
 				return err
 			}
@@ -602,5 +604,5 @@ func GRPCDialOptions(options Options) []grpc.DialOption {
 		opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)))
 	}
 
-	return opts
+	return append(opts, options.DialOptions...)
 }
