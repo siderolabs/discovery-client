@@ -104,7 +104,7 @@ func NewClient(options Options) (*Client, error) {
 
 	var err error
 
-	client.gcm, err = cipher.NewGCM(client.options.Cipher)
+	client.gcm, err = cipher.NewGCMWithRandomNonce(client.options.Cipher)
 	if err != nil {
 		return nil, fmt.Errorf("error creating GCM encryption: %w", err)
 	}

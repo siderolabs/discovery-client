@@ -1,8 +1,8 @@
-# syntax = docker/dockerfile-upstream:1.12.1-labs
+# syntax = docker/dockerfile-upstream:1.16.0-labs
 
 # THIS FILE WAS AUTOMATICALLY GENERATED, PLEASE DO NOT EDIT.
 #
-# Generated on 2025-02-24T13:24:34Z by kres 8a48729.
+# Generated on 2025-07-03T11:43:39Z by kres b282c9b.
 
 ARG TOOLCHAIN
 
@@ -10,9 +10,9 @@ ARG TOOLCHAIN
 FROM scratch AS generate
 
 # runs markdownlint
-FROM docker.io/oven/bun:1.1.43-alpine AS lint-markdown
+FROM docker.io/oven/bun:1.2.15-alpine AS lint-markdown
 WORKDIR /src
-RUN bun i markdownlint-cli@0.43.0 sentences-per-line@0.3.0
+RUN bun i markdownlint-cli@0.45.0 sentences-per-line@0.3.0
 COPY .markdownlint.json .
 COPY ./README.md ./README.md
 RUN bunx markdownlint --ignore "CHANGELOG.md" --ignore "**/node_modules/**" --ignore '**/hack/chglog/**' --rules sentences-per-line .
@@ -32,12 +32,12 @@ ARG GOEXPERIMENT
 ENV GOEXPERIMENT=${GOEXPERIMENT}
 ENV GOPATH=/go
 ARG DEEPCOPY_VERSION
-RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/go/pkg go install github.com/siderolabs/deep-copy@${DEEPCOPY_VERSION} \
+RUN --mount=type=cache,target=/root/.cache/go-build,id=discovery-client/root/.cache/go-build --mount=type=cache,target=/go/pkg,id=discovery-client/go/pkg go install github.com/siderolabs/deep-copy@${DEEPCOPY_VERSION} \
 	&& mv /go/bin/deep-copy /bin/deep-copy
 ARG GOLANGCILINT_VERSION
-RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/go/pkg go install github.com/golangci/golangci-lint/cmd/golangci-lint@${GOLANGCILINT_VERSION} \
+RUN --mount=type=cache,target=/root/.cache/go-build,id=discovery-client/root/.cache/go-build --mount=type=cache,target=/go/pkg,id=discovery-client/go/pkg go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCILINT_VERSION} \
 	&& mv /go/bin/golangci-lint /bin/golangci-lint
-RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/go/pkg go install golang.org/x/vuln/cmd/govulncheck@latest \
+RUN --mount=type=cache,target=/root/.cache/go-build,id=discovery-client/root/.cache/go-build --mount=type=cache,target=/go/pkg,id=discovery-client/go/pkg go install golang.org/x/vuln/cmd/govulncheck@latest \
 	&& mv /go/bin/govulncheck /bin/govulncheck
 ARG GOFUMPT_VERSION
 RUN go install mvdan.cc/gofumpt@${GOFUMPT_VERSION} \
@@ -49,10 +49,10 @@ WORKDIR /src
 COPY go.mod go.mod
 COPY go.sum go.sum
 RUN cd .
-RUN --mount=type=cache,target=/go/pkg go mod download
-RUN --mount=type=cache,target=/go/pkg go mod verify
+RUN --mount=type=cache,target=/go/pkg,id=discovery-client/go/pkg go mod download
+RUN --mount=type=cache,target=/go/pkg,id=discovery-client/go/pkg go mod verify
 COPY ./pkg ./pkg
-RUN --mount=type=cache,target=/go/pkg go list -mod=readonly all >/dev/null
+RUN --mount=type=cache,target=/go/pkg,id=discovery-client/go/pkg go list -mod=readonly all >/dev/null
 
 # runs gofumpt
 FROM base AS lint-gofumpt
@@ -63,25 +63,30 @@ FROM base AS lint-golangci-lint
 WORKDIR /src
 COPY .golangci.yml .
 ENV GOGC=50
-RUN golangci-lint config verify --config .golangci.yml
-RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/root/.cache/golangci-lint --mount=type=cache,target=/go/pkg golangci-lint run --config .golangci.yml
+RUN --mount=type=cache,target=/root/.cache/go-build,id=discovery-client/root/.cache/go-build --mount=type=cache,target=/root/.cache/golangci-lint,id=discovery-client/root/.cache/golangci-lint,sharing=locked --mount=type=cache,target=/go/pkg,id=discovery-client/go/pkg golangci-lint run --config .golangci.yml
 
 # runs govulncheck
 FROM base AS lint-govulncheck
 WORKDIR /src
-RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/go/pkg govulncheck ./...
+RUN --mount=type=cache,target=/root/.cache/go-build,id=discovery-client/root/.cache/go-build --mount=type=cache,target=/go/pkg,id=discovery-client/go/pkg govulncheck ./...
+
+# runs unit-tests with strict FIPS-140 mode
+FROM base AS unit-tests-fips
+WORKDIR /src
+ARG TESTPKGS
+RUN --mount=type=cache,target=/root/.cache/go-build,id=discovery-client/root/.cache/go-build --mount=type=cache,target=/go/pkg,id=discovery-client/go/pkg --mount=type=cache,target=/tmp,id=discovery-client/tmp GOFIPS140=latest GODEBUG=fips140=only go test -v -count 1 ${TESTPKGS}
 
 # runs unit-tests with race detector
 FROM base AS unit-tests-race
 WORKDIR /src
 ARG TESTPKGS
-RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/go/pkg --mount=type=cache,target=/tmp CGO_ENABLED=1 go test -v -race -count 1 ${TESTPKGS}
+RUN --mount=type=cache,target=/root/.cache/go-build,id=discovery-client/root/.cache/go-build --mount=type=cache,target=/go/pkg,id=discovery-client/go/pkg --mount=type=cache,target=/tmp,id=discovery-client/tmp CGO_ENABLED=1 go test -v -race -count 1 ${TESTPKGS}
 
 # runs unit-tests
 FROM base AS unit-tests-run
 WORKDIR /src
 ARG TESTPKGS
-RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/go/pkg --mount=type=cache,target=/tmp go test -v -covermode=atomic -coverprofile=coverage.txt -coverpkg=${TESTPKGS} -count 1 ${TESTPKGS}
+RUN --mount=type=cache,target=/root/.cache/go-build,id=discovery-client/root/.cache/go-build --mount=type=cache,target=/go/pkg,id=discovery-client/go/pkg --mount=type=cache,target=/tmp,id=discovery-client/tmp go test -v -covermode=atomic -coverprofile=coverage.txt -coverpkg=${TESTPKGS} -count 1 ${TESTPKGS}
 
 FROM scratch AS unit-tests
 COPY --from=unit-tests-run /src/coverage.txt /coverage-unit-tests.txt

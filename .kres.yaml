@@ -2,3 +2,7 @@
 kind: service.CodeCov
 spec:
   enabled: false
+---
+kind: golang.UnitTests
+spec:
+  runFIPS: true
