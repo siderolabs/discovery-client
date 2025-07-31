@@ -35,7 +35,7 @@ type Options struct {
 	// Cipher, should have 32-bytes (128-bit key).
 	Cipher cipher.Block
 	// TLS configuration for gRPC connection.
-	TLSConfig *tls.Config
+	TLSConfig func() *tls.Config
 	// gRPC initial endpoint.
 	Endpoint string
 	// ClusterID of the client.
@@ -306,6 +306,11 @@ func (client *Client) Run(ctx context.Context, logger *zap.Logger, notifyCh chan
 			if err != nil {
 				logger.Error("hello failed", zap.Error(err), zap.String("endpoint", client.options.Endpoint))
 
+				// close connection to refresh the TLS configuration
+				discoveryConn.Close() //nolint:errcheck
+				discoveryConn = nil
+				discoveryClient = nil
+
 				// retry hello request until it succeeds
 				continue
 			}
@@ -566,7 +571,6 @@ func watch(ctx context.Context, client serverpb.ClusterClient, clusterID string)
 
 		for ctx.Err() == nil {
 			resp, err := cli.Recv()
-
 			if !channel.SendWithContext(ctx, ch, watchReply{snapshot: isSnapshot, resp: resp, err: err}) {
 				return
 			}
@@ -593,7 +597,11 @@ func GRPCDialOptions(options Options) []grpc.DialOption {
 	if options.Insecure {
 		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	} else {
-		tlsConfig := options.TLSConfig
+		var tlsConfig *tls.Config
+
+		if options.TLSConfig != nil {
+			tlsConfig = options.TLSConfig()
+		}
 
 		if tlsConfig == nil {
 			tlsConfig = &tls.Config{

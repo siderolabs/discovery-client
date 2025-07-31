@@ -1,11 +1,11 @@
 # THIS FILE WAS AUTOMATICALLY GENERATED, PLEASE DO NOT EDIT.
 #
-# Generated on 2025-07-03T11:43:39Z by kres b282c9b.
+# Generated on 2025-07-31T15:10:31Z by kres 5fb5b90.
 
-name: Lock old issues
 "on":
   schedule:
     - cron: 0 2 * * *
+name: Lock old issues
 permissions:
   issues: write
 jobs:

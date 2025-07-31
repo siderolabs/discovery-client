@@ -66,7 +66,7 @@ func TestSmokeTest(t *testing.T) {
 		ClusterID:   clusterID,
 		AffiliateID: affiliate1,
 		TTL:         time.Minute,
-		TLSConfig:   &tls.Config{},
+		TLSConfig:   func() *tls.Config { return &tls.Config{} },
 	})
 	require.NoError(t, err)
 
@@ -76,7 +76,7 @@ func TestSmokeTest(t *testing.T) {
 		ClusterID:   clusterID,
 		AffiliateID: affiliate2,
 		TTL:         time.Minute,
-		TLSConfig:   &tls.Config{},
+		TLSConfig:   func() *tls.Config { return &tls.Config{} },
 	})
 	require.NoError(t, err)
 
