@@ -215,6 +215,14 @@ func (client *Client) DeleteLocalAffiliate() {
 	}
 }
 
+// hasLocalData returns true if the client has local affiliate data to announce.
+func (client *Client) hasLocalData() bool {
+	client.localMu.Lock()
+	defer client.localMu.Unlock()
+
+	return !client.deleteAffiliate && client.localAffiliate != nil
+}
+
 // GetAffiliates returns discovered affiliates.
 func (client *Client) GetAffiliates() []*Affiliate {
 	client.discoveredMu.Lock()
@@ -374,7 +382,16 @@ func (client *Client) Run(ctx context.Context, logger *zap.Logger, notifyCh chan
 				}
 			} else {
 				// new data arrived
-				client.parseReply(logger, reply)
+				selfDeleted := client.parseReply(logger, reply)
+
+				if selfDeleted && client.hasLocalData() {
+					// the server dropped our affiliate while we still expect to be registered:
+					// our updates are not reaching the state the other members watch, so re-announce immediately
+					logger.Warn("local affiliate was deleted server-side, re-announcing",
+						zap.String("affiliate_id", client.options.AffiliateID))
+
+					refreshData = true
+				}
 
 				select {
 				case notifyCh <- struct{}{}:
@@ -387,7 +404,10 @@ func (client *Client) Run(ctx context.Context, logger *zap.Logger, notifyCh chan
 	return nil
 }
 
-func (client *Client) parseReply(logger *zap.Logger, reply watchReply) {
+// parseReply updates the list of discovered affiliates from a watch reply.
+//
+// It returns true if the reply reports server-side deletion of the client's own affiliate.
+func (client *Client) parseReply(logger *zap.Logger, reply watchReply) (selfDeleted bool) {
 	client.discoveredMu.Lock()
 	defer client.discoveredMu.Unlock()
 
@@ -398,6 +418,10 @@ func (client *Client) parseReply(logger *zap.Logger, reply watchReply) {
 
 	for _, affiliate := range reply.resp.Affiliates {
 		if affiliate.Id == client.options.AffiliateID {
+			if reply.resp.Deleted {
+				selfDeleted = true
+			}
+
 			// skip updates about itself
 			continue
 		}
@@ -469,6 +493,8 @@ func (client *Client) parseReply(logger *zap.Logger, reply watchReply) {
 
 		client.discoveredAffiliates[affiliate.Id] = parsedAffiliate
 	}
+
+	return selfDeleted
 }
 
 func (client *Client) sendHello(ctx context.Context, discoveryClient serverpb.ClusterClient) (newEndpoint string, err error) {
